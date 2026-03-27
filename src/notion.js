@@ -12,6 +12,7 @@ function extractText(richTextArray) {
 function blockToText(block) {
   const type = block.type;
   const data = block[type];
+
   if (!data) return "";
 
   if (data.rich_text) {
@@ -31,11 +32,15 @@ function blockToText(block) {
   }
 
   if (type === "code") {
-    return bt+bt+bt + (data.language || "") + "\n" + extractText(data.rich_text) + "\n" + bt+bt+bt;
+    const code = extractText(data.rich_text);
+    return "```" + (data.language || "") + "\n" + code + "\n```";
   }
+
   if (type === "divider") return "---";
-  if (type === "child_page") return "## " + (data.title || "Untitled");
-  if (type === "child_database") return "## [Database] " + (data.title || "Untitled");
+  if (type === "table") return "[Table]";
+  if (type === "child_page") return "## " + (data.title || "Untitled Page");
+  if (type === "child_database") return "## " + (data.title || "Untitled Database");
+
   return "";
 }
 
@@ -43,6 +48,7 @@ async function fetchBlockChildren(blockId, depth) {
   if (depth > MAX_DEPTH) return [];
   const blocks = [];
   let cursor;
+
   try {
     do {
       const response = await notion.blocks.children.list({
@@ -50,20 +56,24 @@ async function fetchBlockChildren(blockId, depth) {
         start_cursor: cursor,
         page_size: 100,
       });
+
       for (const block of response.results) {
         const text = blockToText(block);
         const indent = "  ".repeat(depth);
         if (text) blocks.push(indent + text);
+
         if (block.has_children) {
           const children = await fetchBlockChildren(block.id, depth + 1);
           blocks.push(...children);
         }
       }
+
       cursor = response.has_more ? response.next_cursor : null;
     } while (cursor);
   } catch (err) {
-    // Skip blocks we cannot access
+    // Skip inaccessible blocks
   }
+
   return blocks;
 }
 
@@ -75,33 +85,44 @@ async function fetchPageContent(pageId) {
 async function getPageTitle(pageId) {
   try {
     const page = await notion.pages.retrieve({ page_id: pageId });
-    const titleProp = Object.values(page.properties).find((p) => p.type === "title");
-    if (titleProp && titleProp.title) return extractText(titleProp.title);
+    const titleProp = Object.values(page.properties).find(
+      (p) => p.type === "title"
+    );
+    if (titleProp && titleProp.title) {
+      return extractText(titleProp.title);
+    }
     return "Untitled";
-  } catch { return "Untitled"; }
+  } catch {
+    return "Untitled";
+  }
 }
 
 async function fetchDatabasePages(databaseId) {
   const pages = [];
   let cursor;
+
   do {
     const response = await notion.databases.query({
       database_id: databaseId,
       start_cursor: cursor,
       page_size: 50,
     });
+
     for (const page of response.results) {
       const title = await getPageTitle(page.id);
       const content = await fetchPageContent(page.id);
       if (content.trim()) pages.push({ title, content });
     }
+
     cursor = response.has_more ? response.next_cursor : null;
   } while (cursor);
+
   return pages;
 }
 
 async function fetchAllContent(notionIds) {
   const sections = [];
+
   for (const id of notionIds) {
     try {
       try {
@@ -111,13 +132,17 @@ async function fetchAllContent(notionIds) {
         }
         continue;
       } catch { }
+
       const title = await getPageTitle(id);
       const content = await fetchPageContent(id);
-      if (content.trim()) sections.push("=== " + title + " ===\n" + content);
+      if (content.trim()) {
+        sections.push("=== " + title + " ===\n" + content);
+      }
     } catch (err) {
       console.error("Failed to fetch Notion content for ID " + id + ":", err.message);
     }
   }
+
   return sections.join("\n\n");
 }
 
