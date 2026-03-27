@@ -1,0 +1,20 @@
+{
+  "name": "qna-bot",
+  "version": "1.0.0",
+  "description": "Discord QNA bot powered by Notion docs and Claude AI",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "deploy-commands": "node src/deploy-commands.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0",
+    "@notionhq/client": "^2.2.15",
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.7"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
