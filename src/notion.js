@@ -2,6 +2,8 @@ const { Client } = require("@notionhq/client");
 
 const notion = new Client({ auth: process.env.NOTION_API_KEY });
 
+const MAX_DEPTH = 5;
+
 function extractText(richTextArray) {
   if (!richTextArray) return "";
   return richTextArray.map((t) => t.plain_text).join("");
@@ -32,44 +34,42 @@ function blockToText(block) {
     return bt+bt+bt + (data.language || "") + "\n" + extractText(data.rich_text) + "\n" + bt+bt+bt;
   }
   if (type === "divider") return "---";
+  if (type === "child_page") return "## " + (data.title || "Untitled");
+  if (type === "child_database") return "## [Database] " + (data.title || "Untitled");
   return "";
 }
 
-async function fetchPageContent(pageId) {
+async function fetchBlockChildren(blockId, depth) {
+  if (depth > MAX_DEPTH) return [];
   const blocks = [];
   let cursor;
-  do {
-    const response = await notion.blocks.children.list({
-      block_id: pageId,
-      start_cursor: cursor,
-      page_size: 100,
-    });
-    for (const block of response.results) {
-      const text = blockToText(block);
-      if (text) blocks.push(text);
-      if (block.has_children) {
-        try {
-          const children = await fetchNestedBlocks(block.id);
-          blocks.push(...children.map((line) => "  " + line));
-        } catch { }
+  try {
+    do {
+      const response = await notion.blocks.children.list({
+        block_id: blockId,
+        start_cursor: cursor,
+        page_size: 100,
+      });
+      for (const block of response.results) {
+        const text = blockToText(block);
+        const indent = "  ".repeat(depth);
+        if (text) blocks.push(indent + text);
+        if (block.has_children) {
+          const children = await fetchBlockChildren(block.id, depth + 1);
+          blocks.push(...children);
+        }
       }
-    }
-    cursor = response.has_more ? response.next_cursor : null;
-  } while (cursor);
-  return blocks.join("\n");
+      cursor = response.has_more ? response.next_cursor : null;
+    } while (cursor);
+  } catch (err) {
+    // Skip blocks we cannot access
+  }
+  return blocks;
 }
 
-async function fetchNestedBlocks(blockId) {
-  const lines = [];
-  const response = await notion.blocks.children.list({
-    block_id: blockId,
-    page_size: 100,
-  });
-  for (const block of response.results) {
-    const text = blockToText(block);
-    if (text) lines.push(text);
-  }
-  return lines;
+async function fetchPageContent(pageId) {
+  const blocks = await fetchBlockChildren(pageId, 0);
+  return blocks.join("\n");
 }
 
 async function getPageTitle(pageId) {
