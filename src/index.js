@@ -27,7 +27,6 @@ client.once("ready", () => {
 });
 
 client.on("interactionCreate", async (interaction) => {
-  // ─── Role select menu: store selected roles, show submit button ───
   if (interaction.isRoleSelectMenu()) {
     const id = interaction.customId;
     if (id.startsWith("qna_roles_")) {
@@ -35,10 +34,7 @@ client.on("interactionCreate", async (interaction) => {
       const pending = pendingSetups.get(setupKey);
 
       if (!pending) {
-        await interaction.reply({
-          content: "This setup has expired. Please run /qna-setup again.",
-          ephemeral: true,
-        });
+        await interaction.reply({ content: "This setup has expired. Please run /qna-setup again.", ephemeral: true });
         return;
       }
 
@@ -78,20 +74,15 @@ client.on("interactionCreate", async (interaction) => {
     return;
   }
 
-  // ─── Button interactions ──────────────────────────────────
   if (interaction.isButton()) {
     const id = interaction.customId;
 
-    // Submit button from qna-setup
     if (id.startsWith("qna_submit_")) {
       const setupKey = id.replace("qna_submit_", "");
       const pending = pendingSetups.get(setupKey);
 
       if (!pending || !pending.selectedRoleIds || !pending.selectedRoleIds.length) {
-        await interaction.reply({
-          content: "This setup has expired or no roles were selected. Please run /qna-setup again.",
-          ephemeral: true,
-        });
+        await interaction.reply({ content: "This setup has expired or no roles were selected. Please run /qna-setup again.", ephemeral: true });
         return;
       }
 
@@ -109,30 +100,19 @@ client.on("interactionCreate", async (interaction) => {
         });
         const fullLabel = allRoleNames.join(", ");
         updateSourceLabel(interaction.guildId, pending.notionIds, fullLabel);
-
-        await interaction.update({
-          content: "Roles updated!\n\nThese Notion docs are now accessible by: " + fullLabel,
-          components: [],
-        });
+        await interaction.update({ content: "Roles updated!\n\nThese Notion docs are now accessible by: " + fullLabel, components: [] });
       } else {
-        await interaction.update({
-          content: "QNA Bot configured!\n\nLinked **" + pending.notionIds.length + "** Notion source(s) to roles: " + roleLabel + "\n\nUsers with those roles can now use /ask to query these docs.",
-          components: [],
-        });
+        await interaction.update({ content: "QNA Bot configured!\n\nLinked **" + pending.notionIds.length + "** Notion source(s) to roles: " + roleLabel + "\n\nUsers with those roles can now use /ask to query these docs.", components: [] });
       }
       return;
     }
 
-    // "Everyone" button from qna-setup
     if (id.startsWith("qna_everyone_")) {
       const setupKey = id.replace("qna_everyone_", "");
       const pending = pendingSetups.get(setupKey);
 
       if (!pending) {
-        await interaction.reply({
-          content: "This setup has expired. Please run /qna-setup again.",
-          ephemeral: true,
-        });
+        await interaction.reply({ content: "This setup has expired. Please run /qna-setup again.", ephemeral: true });
         return;
       }
 
@@ -150,30 +130,19 @@ client.on("interactionCreate", async (interaction) => {
         });
         const fullLabel = allRoleNames.join(", ");
         updateSourceLabel(interaction.guildId, pending.notionIds, fullLabel);
-
-        await interaction.update({
-          content: "Roles updated!\n\nThese Notion docs are now accessible by: " + fullLabel,
-          components: [],
-        });
+        await interaction.update({ content: "Roles updated!\n\nThese Notion docs are now accessible by: " + fullLabel, components: [] });
       } else {
-        await interaction.update({
-          content: "QNA Bot configured!\n\nLinked **" + pending.notionIds.length + "** Notion source(s) to: **@everyone**\n\nAll members can now use /ask to query these docs.",
-          components: [],
-        });
+        await interaction.update({ content: "QNA Bot configured!\n\nLinked **" + pending.notionIds.length + "** Notion source(s) to: **@everyone**\n\nAll members can now use /ask to query these docs.", components: [] });
       }
       return;
     }
 
-    // Expand/collapse answer buttons
     if (id.startsWith("expand_") || id.startsWith("collapse_")) {
       const key = id.replace("expand_", "").replace("collapse_", "");
       const data = answerStore.get(key);
 
       if (!data) {
-        await interaction.reply({
-          content: "This answer has expired. Please ask the question again.",
-          ephemeral: true,
-        });
+        await interaction.reply({ content: "This answer has expired. Please ask the question again.", ephemeral: true });
         return;
       }
 
@@ -182,10 +151,7 @@ client.on("interactionCreate", async (interaction) => {
       const embed = new EmbedBuilder()
         .setColor(0x5865f2)
         .setTitle("Question")
-        .setFooter({
-          text: "Asked by " + data.username,
-          iconURL: data.avatarURL,
-        })
+        .setFooter({ text: "Asked by " + data.username, iconURL: data.avatarURL })
         .setTimestamp();
 
       if (expanding) {
@@ -214,7 +180,6 @@ client.on("interactionCreate", async (interaction) => {
 
   const { commandName, guildId, guild } = interaction;
 
-  // ─── /ask ────────────────────────────────────────────────
   if (commandName === "ask") {
     const question = interaction.options.getString("question");
 
@@ -222,10 +187,7 @@ client.on("interactionCreate", async (interaction) => {
     const notionIds = getNotionIdsForRoles(guildId, memberRoleIds);
 
     if (!notionIds.length) {
-      await interaction.reply({
-        content: "You don't have access to any Notion docs in this server. Ask an admin to set up your role with /qna-setup.",
-        ephemeral: true,
-      });
+      await interaction.reply({ content: "You don't have access to any Notion docs in this server. Ask an admin to set up your role with /qna-setup.", ephemeral: true });
       return;
     }
 
@@ -246,7 +208,6 @@ client.on("interactionCreate", async (interaction) => {
         serverConfig?.name || guild?.name || "this server"
       );
 
-      // Match cited titles to actual Notion page sources for hyperlinks
       const sourceLinks = [];
       for (const cited of citedTitles) {
         const match = notionSources.find((s) => s.title.toLowerCase() === cited.toLowerCase());
@@ -255,7 +216,6 @@ client.on("interactionCreate", async (interaction) => {
           sourceLinks.push("[" + match.title + "](https://notion.so/" + cleanId + ")");
         }
       }
-      // Fallback: if Claude didn't cite any, link all sources
       if (!sourceLinks.length && notionSources.length) {
         for (const s of notionSources) {
           const cleanId = s.id.replace(/-/g, "");
@@ -280,48 +240,42 @@ client.on("interactionCreate", async (interaction) => {
         .setTitle("Question")
         .setDescription(question + "\n\n**Answer:**\n" + summary.slice(0, 3900))
         .addFields({ name: "Source", value: sourceText.slice(0, 1024) })
-        .setFooter({
-          text: "Asked by " + interaction.user.displayName,
-          iconURL: interaction.user.displayAvatarURL(),
-        })
+        .setFooter({ text: "Asked by " + interaction.user.displayName, iconURL: interaction.user.displayAvatarURL() })
         .setTimestamp();
 
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId("expand_" + answerKey)
-          .setLabel("Show Full Answer")
-          .setStyle(ButtonStyle.Primary)
-          .setEmoji("\uD83D\uDCD6")
-      );
+      // Only show expand button if there's a meaningful detailed answer
+      const hasDetailed = detailed && !detailed.toLowerCase().includes("no additional details") && detailed.length > 20;
 
-      await interaction.editReply({ embeds: [embed], components: [row] });
+      const replyOptions = { embeds: [embed] };
+      if (hasDetailed) {
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId("expand_" + answerKey)
+            .setLabel("Show Full Answer")
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji("\uD83D\uDCD6")
+        );
+        replyOptions.components = [row];
+      }
+
+      await interaction.editReply(replyOptions);
     } catch (err) {
       console.error("Error handling /ask:", err);
       await interaction.editReply("Something went wrong while fetching the answer. Please try again later.");
     }
   }
 
-  // ─── /qna-setup (step 1: show role menu + everyone button) ─
   if (commandName === "qna-setup") {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({
-        content: "Only server administrators can run this command.",
-        ephemeral: true,
-      });
+      await interaction.reply({ content: "Only server administrators can run this command.", ephemeral: true });
       return;
     }
 
     const rawIds = interaction.options.getString("notion_ids");
-    const notionIds = rawIds
-      .split(",")
-      .map((id) => id.trim().replace(/-/g, ""))
-      .filter(Boolean);
+    const notionIds = rawIds.split(",").map((id) => id.trim().replace(/-/g, "")).filter(Boolean);
 
     if (!notionIds.length) {
-      await interaction.reply({
-        content: "Please provide at least one Notion page or database ID.",
-        ephemeral: true,
-      });
+      await interaction.reply({ content: "Please provide at least one Notion page or database ID.", ephemeral: true });
       return;
     }
 
@@ -352,13 +306,9 @@ client.on("interactionCreate", async (interaction) => {
     });
   }
 
-  // ─── /qna-remove ────────────────────────────────────────
   if (commandName === "qna-remove") {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
-      await interaction.reply({
-        content: "Only server administrators can run this command.",
-        ephemeral: true,
-      });
+      await interaction.reply({ content: "Only server administrators can run this command.", ephemeral: true });
       return;
     }
 
@@ -366,27 +316,17 @@ client.on("interactionCreate", async (interaction) => {
     const removed = removeSource(guildId, notionId);
 
     if (removed) {
-      await interaction.reply({
-        content: "Removed Notion source `" + notionId + "` from this server.",
-        ephemeral: true,
-      });
+      await interaction.reply({ content: "Removed Notion source `" + notionId + "` from this server.", ephemeral: true });
     } else {
-      await interaction.reply({
-        content: "No source found with that ID. Use /qna-status to see configured sources.",
-        ephemeral: true,
-      });
+      await interaction.reply({ content: "No source found with that ID. Use /qna-status to see configured sources.", ephemeral: true });
     }
   }
 
-  // ─── /qna-status ────────────────────────────────────────
   if (commandName === "qna-status") {
     const config = getServerConfig(guildId);
 
     if (!config || !config.sources || !config.sources.length) {
-      await interaction.reply({
-        content: "This server hasn't been set up yet. An admin needs to run /qna-setup to link Notion pages to roles.",
-        ephemeral: true,
-      });
+      await interaction.reply({ content: "This server hasn't been set up yet. An admin needs to run /qna-setup to link Notion pages to roles.", ephemeral: true });
       return;
     }
 
