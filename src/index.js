@@ -42,7 +42,6 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      // Store the selected role IDs
       pending.selectedRoleIds = interaction.values;
       pending.selectedRoleNames = interaction.values.map((rid) => {
         if (rid === interaction.guildId) return "@everyone";
@@ -50,7 +49,6 @@ client.on("interactionCreate", async (interaction) => {
         return role ? "@" + role.name : rid;
       });
 
-      // Re-show the role select + submit button
       const roleRow = new ActionRowBuilder().addComponents(
         new RoleSelectMenuBuilder()
           .setCustomId("qna_roles_" + setupKey)
@@ -184,7 +182,6 @@ client.on("interactionCreate", async (interaction) => {
       const embed = new EmbedBuilder()
         .setColor(0x5865f2)
         .setTitle("Question")
-        .setDescription(data.question)
         .setFooter({
           text: "Asked by " + data.username,
           iconURL: data.avatarURL,
@@ -192,15 +189,12 @@ client.on("interactionCreate", async (interaction) => {
         .setTimestamp();
 
       if (expanding) {
-        embed.addFields(
-          { name: "Answer", value: (data.summary.slice(0, 900) + "\n\n---\n\n**Full Answer:**\n" + data.detailed.slice(0, 900)).slice(0, 1024) },
-          { name: "Source", value: (data.sourceText || "Notion docs").slice(0, 1024) }
-        );
+        const fullAnswer = "**Answer:**\n" + data.summary + "\n\n---\n\n**Full Answer:**\n" + data.detailed;
+        embed.setDescription(data.question + "\n\n" + fullAnswer.slice(0, 4000));
+        embed.addFields({ name: "Source", value: (data.sourceText || "Notion docs").slice(0, 1024) });
       } else {
-        embed.addFields(
-          { name: "Answer", value: data.summary.slice(0, 1024) },
-          { name: "Source", value: (data.sourceText || "Notion docs").slice(0, 1024) }
-        );
+        embed.setDescription(data.question + "\n\n**Answer:**\n" + data.summary.slice(0, 3900));
+        embed.addFields({ name: "Source", value: (data.sourceText || "Notion docs").slice(0, 1024) });
       }
 
       const row = new ActionRowBuilder().addComponents(
@@ -284,11 +278,8 @@ client.on("interactionCreate", async (interaction) => {
       const embed = new EmbedBuilder()
         .setColor(0x5865f2)
         .setTitle("Question")
-        .setDescription(question)
-        .addFields(
-          { name: "Answer", value: summary.slice(0, 1024) },
-          { name: "Source", value: sourceText.slice(0, 1024) }
-        )
+        .setDescription(question + "\n\n**Answer:**\n" + summary.slice(0, 3900))
+        .addFields({ name: "Source", value: sourceText.slice(0, 1024) })
         .setFooter({
           text: "Asked by " + interaction.user.displayName,
           iconURL: interaction.user.displayAvatarURL(),
