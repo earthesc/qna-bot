@@ -183,8 +183,8 @@ client.on("interactionCreate", async (interaction) => {
 
       const embed = new EmbedBuilder()
         .setColor(0x5865f2)
-        .setAuthor({ name: data.question.slice(0, 256) })
-        .setTitle("Answer")
+        .setTitle("Question")
+        .setDescription(data.question)
         .setFooter({
           text: "Asked by " + data.username,
           iconURL: data.avatarURL,
@@ -192,13 +192,15 @@ client.on("interactionCreate", async (interaction) => {
         .setTimestamp();
 
       if (expanding) {
-        embed.setDescription(
-          data.summary.slice(0, 2000) +
-          "\n\n---\n\n**Full Answer:**\n" +
-          data.detailed.slice(0, 1800)
+        embed.addFields(
+          { name: "Answer", value: (data.summary.slice(0, 900) + "\n\n---\n\n**Full Answer:**\n" + data.detailed.slice(0, 900)).slice(0, 1024) },
+          { name: "Source", value: (data.sourceText || "Notion docs").slice(0, 1024) }
         );
       } else {
-        embed.setDescription(data.summary.slice(0, 4096));
+        embed.addFields(
+          { name: "Answer", value: data.summary.slice(0, 1024) },
+          { name: "Source", value: (data.sourceText || "Notion docs").slice(0, 1024) }
+        );
       }
 
       const row = new ActionRowBuilder().addComponents(
@@ -236,7 +238,7 @@ client.on("interactionCreate", async (interaction) => {
     await interaction.deferReply();
 
     try {
-      const docsContent = await fetchAllContent(notionIds);
+      const { text: docsContent, sources: notionSources } = await fetchAllContent(notionIds);
 
       if (!docsContent.trim()) {
         await interaction.editReply("No content found in the Notion pages you have access to.");
@@ -244,17 +246,36 @@ client.on("interactionCreate", async (interaction) => {
       }
 
       const serverConfig = getServerConfig(guildId);
-      const { summary, detailed } = await askClaude(
+      const { summary, detailed, citedTitles } = await askClaude(
         question,
         docsContent,
         serverConfig?.name || guild?.name || "this server"
       );
+
+      // Match cited titles to actual Notion page sources for hyperlinks
+      const sourceLinks = [];
+      for (const cited of citedTitles) {
+        const match = notionSources.find((s) => s.title.toLowerCase() === cited.toLowerCase());
+        if (match) {
+          const cleanId = match.id.replace(/-/g, "");
+          sourceLinks.push("[" + match.title + "](https://notion.so/" + cleanId + ")");
+        }
+      }
+      // Fallback: if Claude didn't cite any, link all sources
+      if (!sourceLinks.length && notionSources.length) {
+        for (const s of notionSources) {
+          const cleanId = s.id.replace(/-/g, "");
+          sourceLinks.push("[" + s.title + "](https://notion.so/" + cleanId + ")");
+        }
+      }
+      const sourceText = sourceLinks.length ? sourceLinks.join("\n") : "Notion docs";
 
       const answerKey = interaction.id;
       answerStore.set(answerKey, {
         summary,
         detailed,
         question,
+        sourceText,
         username: interaction.user.displayName,
         avatarURL: interaction.user.displayAvatarURL(),
       });
@@ -262,9 +283,12 @@ client.on("interactionCreate", async (interaction) => {
 
       const embed = new EmbedBuilder()
         .setColor(0x5865f2)
-        .setAuthor({ name: question.slice(0, 256) })
-        .setTitle("Answer")
-        .setDescription(summary.slice(0, 4096))
+        .setTitle("Question")
+        .setDescription(question)
+        .addFields(
+          { name: "Answer", value: summary.slice(0, 1024) },
+          { name: "Source", value: sourceText.slice(0, 1024) }
+        )
         .setFooter({
           text: "Asked by " + interaction.user.displayName,
           iconURL: interaction.user.displayAvatarURL(),
