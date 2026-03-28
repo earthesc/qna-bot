@@ -4,7 +4,7 @@ const { REST, Routes, SlashCommandBuilder } = require("discord.js");
 const commands = [
   new SlashCommandBuilder()
     .setName("ask")
-    .setDescription("Ask a question - answered from the server's Notion docs")
+    .setDescription("Ask a question — answered from the server's Notion docs")
     .addStringOption((option) =>
       option
         .setName("question")
@@ -14,11 +14,27 @@ const commands = [
 
   new SlashCommandBuilder()
     .setName("qna-setup")
-    .setDescription("Configure Notion pages for this server (admin only)")
+    .setDescription("Link Notion docs to specific roles (admin only)")
     .addStringOption((option) =>
       option
         .setName("notion_ids")
-        .setDescription("Comma-separated Notion page or database IDs (from the URL)")
+        .setDescription("Comma-separated Notion page or database IDs")
+        .setRequired(true)
+    )
+    .addStringOption((option) =>
+      option
+        .setName("roles")
+        .setDescription("Mention the roles that can access these docs (e.g. @Staff @Admin)")
+        .setRequired(true)
+    ),
+
+  new SlashCommandBuilder()
+    .setName("qna-remove")
+    .setDescription("Remove a Notion source by ID (admin only)")
+    .addStringOption((option) =>
+      option
+        .setName("notion_id")
+        .setDescription("The Notion page or database ID to remove")
         .setRequired(true)
     ),
 
