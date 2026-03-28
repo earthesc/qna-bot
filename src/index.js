@@ -17,7 +17,7 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
 
-const detailedAnswers = new Map();
+const answerStore = new Map();
 
 client.once("ready", () => {
   console.log("Bot is online as " + client.user.tag);
@@ -26,9 +26,10 @@ client.once("ready", () => {
 
 client.on("interactionCreate", async (interaction) => {
   if (interaction.isButton()) {
-    if (interaction.customId.startsWith("show_more_")) {
-      const key = interaction.customId.replace("show_more_", "");
-      const data = detailedAnswers.get(key);
+    const id = interaction.customId;
+    if (id.startsWith("expand_") || id.startsWith("collapse_")) {
+      const key = id.replace("expand_", "").replace("collapse_", "");
+      const data = answerStore.get(key);
 
       if (!data) {
         await interaction.reply({
@@ -38,14 +39,33 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      const fullEmbed = new EmbedBuilder()
+      const expanding = id.startsWith("expand_");
+
+      const embed = new EmbedBuilder()
         .setColor(0x5865f2)
-        .setTitle("Detailed Answer")
-        .setDescription(data.detailed.slice(0, 4096))
-        .setFooter({ text: "Question: " + data.question.slice(0, 100) })
+        .setAuthor({ name: data.question.slice(0, 256) })
+        .setTitle("Answer")
+        .setFooter({
+          text: "Asked by " + data.username,
+          iconURL: data.avatarURL,
+        })
         .setTimestamp();
 
-      await interaction.reply({ embeds: [fullEmbed] });
+      if (expanding) {
+        embed.setDescription(data.summary.slice(0, 2000) + "\n\n---\n\n**Full Answer:**\n" + data.detailed.slice(0, 1800));
+      } else {
+        embed.setDescription(data.summary.slice(0, 4096));
+      }
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(expanding ? "collapse_" + key : "expand_" + key)
+          .setLabel(expanding ? "Hide Full Answer" : "Show Full Answer")
+          .setStyle(expanding ? ButtonStyle.Secondary : ButtonStyle.Primary)
+          .setEmoji(expanding ? "🔼" : "📖")
+      );
+
+      await interaction.update({ embeds: [embed], components: [row] });
     }
     return;
   }
@@ -83,8 +103,14 @@ client.on("interactionCreate", async (interaction) => {
       );
 
       const answerKey = interaction.id;
-      detailedAnswers.set(answerKey, { detailed, question });
-      setTimeout(() => detailedAnswers.delete(answerKey), 30 * 60 * 1000);
+      answerStore.set(answerKey, {
+        summary,
+        detailed,
+        question,
+        username: interaction.user.displayName,
+        avatarURL: interaction.user.displayAvatarURL(),
+      });
+      setTimeout(() => answerStore.delete(answerKey), 30 * 60 * 1000);
 
       const embed = new EmbedBuilder()
         .setColor(0x5865f2)
@@ -99,7 +125,7 @@ client.on("interactionCreate", async (interaction) => {
 
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId("show_more_" + answerKey)
+          .setCustomId("expand_" + answerKey)
           .setLabel("Show Full Answer")
           .setStyle(ButtonStyle.Primary)
           .setEmoji("📖")
