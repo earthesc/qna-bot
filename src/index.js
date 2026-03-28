@@ -12,7 +12,7 @@ const {
 } = require("discord.js");
 const { fetchAllContent } = require("./notion");
 const { askClaude } = require("./claude");
-const { getServerConfig, addSource, removeSource, getNotionIdsForRoles } = require("./config");
+const { getServerConfig, addSource, removeSource, getNotionIdsForRoles, getSourceByNotionIds, updateSourceLabel } = require("./config");
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
@@ -49,13 +49,29 @@ client.on("interactionCreate", async (interaction) => {
       });
       const roleLabel = roleNames.join(", ");
 
-      addSource(interaction.guildId, pending.notionIds, roleIds, roleLabel, interaction.guild?.name);
+      const merged = addSource(interaction.guildId, pending.notionIds, roleIds, roleLabel, interaction.guild?.name);
       pendingSetups.delete(setupKey);
 
-      await interaction.update({
-        content: "QNA Bot configured!\n\nLinked **" + pending.notionIds.length + "** Notion source(s) to roles: " + roleLabel + "\n\nUsers with those roles can now use /ask to query these docs.",
-        components: [],
-      });
+      if (merged) {
+        // Rebuild the label from ALL role IDs on this source
+        const allRoleNames = merged.roleIds.map((rid) => {
+          if (rid === interaction.guildId) return "@everyone";
+          const role = interaction.guild.roles.cache.get(rid);
+          return role ? "@" + role.name : rid;
+        });
+        const fullLabel = allRoleNames.join(", ");
+        updateSourceLabel(interaction.guildId, pending.notionIds, fullLabel);
+
+        await interaction.update({
+          content: "Roles updated!\n\nThese Notion docs are now accessible by: " + fullLabel,
+          components: [],
+        });
+      } else {
+        await interaction.update({
+          content: "QNA Bot configured!\n\nLinked **" + pending.notionIds.length + "** Notion source(s) to roles: " + roleLabel + "\n\nUsers with those roles can now use /ask to query these docs.",
+          components: [],
+        });
+      }
     }
     return;
   }
@@ -80,13 +96,28 @@ client.on("interactionCreate", async (interaction) => {
       const roleIds = [interaction.guildId];
       const roleLabel = "@everyone";
 
-      addSource(interaction.guildId, pending.notionIds, roleIds, roleLabel, interaction.guild?.name);
+      const merged = addSource(interaction.guildId, pending.notionIds, roleIds, roleLabel, interaction.guild?.name);
       pendingSetups.delete(setupKey);
 
-      await interaction.update({
-        content: "QNA Bot configured!\n\nLinked **" + pending.notionIds.length + "** Notion source(s) to: **@everyone**\n\nAll members can now use /ask to query these docs.",
-        components: [],
-      });
+      if (merged) {
+        const allRoleNames = merged.roleIds.map((rid) => {
+          if (rid === interaction.guildId) return "@everyone";
+          const role = interaction.guild.roles.cache.get(rid);
+          return role ? "@" + role.name : rid;
+        });
+        const fullLabel = allRoleNames.join(", ");
+        updateSourceLabel(interaction.guildId, pending.notionIds, fullLabel);
+
+        await interaction.update({
+          content: "Roles updated!\n\nThese Notion docs are now accessible by: " + fullLabel,
+          components: [],
+        });
+      } else {
+        await interaction.update({
+          content: "QNA Bot configured!\n\nLinked **" + pending.notionIds.length + "** Notion source(s) to: **@everyone**\n\nAll members can now use /ask to query these docs.",
+          components: [],
+        });
+      }
       return;
     }
 
