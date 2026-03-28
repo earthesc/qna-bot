@@ -41,9 +41,10 @@ ${docsContent}`;
     .map((block) => block.text)
     .join("\n");
 
-  const summaryMatch = answer.match(/SUMMARY:\s*\n([\s\S]*?)(?=\nDETAILED:)/i);
-  const detailedMatch = answer.match(/DETAILED:\s*\n([\s\S]*?)(?=\nSOURCES:|$)/i);
-  const sourcesMatch = answer.match(/SOURCES:\s*\n([\s\S]*)/i);
+  // Parse out summary, detailed, and sources sections
+  const summaryMatch = answer.match(/SUMMARY:\s*\n?([\s\S]*?)(?=\n\s*DETAILED:)/i);
+  const detailedMatch = answer.match(/DETAILED:\s*\n?([\s\S]*?)(?=\n\s*SOURCES:|$)/i);
+  const sourcesMatch = answer.match(/SOURCES:\s*\n?([\s\S]*)/i);
 
   const summary = summaryMatch ? summaryMatch[1].trim() : answer.slice(0, 500);
   const detailed = detailedMatch ? detailedMatch[1].trim() : answer;
