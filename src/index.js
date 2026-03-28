@@ -44,7 +44,6 @@ client.on("interactionCreate", async (interaction) => {
 
       const roleIds = interaction.values;
       const roleNames = roleIds.map((rid) => {
-        if (rid === interaction.guildId) return "@everyone";
         const role = interaction.guild.roles.cache.get(rid);
         return role ? "@" + role.name : rid;
       });
@@ -61,9 +60,37 @@ client.on("interactionCreate", async (interaction) => {
     return;
   }
 
-  // ─── Button interactions (expand/collapse) ────────────────
+  // ─── Button interactions ──────────────────────────────────
   if (interaction.isButton()) {
     const id = interaction.customId;
+
+    // "Everyone" button from qna-setup
+    if (id.startsWith("qna_everyone_")) {
+      const setupKey = id.replace("qna_everyone_", "");
+      const pending = pendingSetups.get(setupKey);
+
+      if (!pending) {
+        await interaction.reply({
+          content: "This setup has expired. Please run /qna-setup again.",
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const roleIds = [interaction.guildId];
+      const roleLabel = "@everyone";
+
+      addSource(interaction.guildId, pending.notionIds, roleIds, roleLabel, interaction.guild?.name);
+      pendingSetups.delete(setupKey);
+
+      await interaction.update({
+        content: "QNA Bot configured!\n\nLinked **" + pending.notionIds.length + "** Notion source(s) to: **@everyone**\n\nAll members can now use /ask to query these docs.",
+        components: [],
+      });
+      return;
+    }
+
+    // Expand/collapse answer buttons
     if (id.startsWith("expand_") || id.startsWith("collapse_")) {
       const key = id.replace("expand_", "").replace("collapse_", "");
       const data = answerStore.get(key);
@@ -183,7 +210,7 @@ client.on("interactionCreate", async (interaction) => {
     }
   }
 
-  // ─── /qna-setup (step 1: show role select menu) ──────────
+  // ─── /qna-setup (step 1: show role menu + everyone button) ─
   if (commandName === "qna-setup") {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
       await interaction.reply({
@@ -211,17 +238,25 @@ client.on("interactionCreate", async (interaction) => {
     pendingSetups.set(setupKey, { notionIds });
     setTimeout(() => pendingSetups.delete(setupKey), 5 * 60 * 1000);
 
-    const row = new ActionRowBuilder().addComponents(
+    const roleRow = new ActionRowBuilder().addComponents(
       new RoleSelectMenuBuilder()
         .setCustomId("qna_roles_" + setupKey)
-        .setPlaceholder("Select roles that can access these docs")
+        .setPlaceholder("Select specific roles...")
         .setMinValues(1)
         .setMaxValues(10)
     );
 
+    const everyoneRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("qna_everyone_" + setupKey)
+        .setLabel("Everyone (all members)")
+        .setStyle(ButtonStyle.Success)
+        .setEmoji("\uD83C\uDF0D")
+    );
+
     await interaction.reply({
-      content: "**Step 2:** Select the roles that should have access to these Notion docs.\nChoose **@everyone** to make them available to all members.",
-      components: [row],
+      content: "**Step 2:** Who should have access to these Notion docs?\n\nPick specific roles from the dropdown, **or** click the button below for everyone.",
+      components: [roleRow, everyoneRow],
       ephemeral: true,
     });
   }
