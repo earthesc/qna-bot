@@ -48,15 +48,17 @@ function blockToText(block) {
 
   if (type === "divider") return "---";
   if (type === "table") return "[Table]";
-  if (type === "child_page") return "## " + (data.title || "Untitled Page");
-  if (type === "child_database") return "## " + (data.title || "Untitled Database");
 
   return "";
 }
 
-async function fetchBlockChildren(blockId, depth) {
+/**
+ * Fetch blocks from a page/block, but DON'T recurse into child_page blocks.
+ * Instead, collect child page IDs so they can be fetched as separate sources.
+ */
+async function fetchBlocksFlat(blockId, depth, childPageIds) {
   if (depth > MAX_DEPTH) return [];
-  const blocks = [];
+  const lines = [];
   let cursor;
 
   try {
@@ -68,13 +70,24 @@ async function fetchBlockChildren(blockId, depth) {
       });
 
       for (const block of response.results) {
+        // If it's a child_page, don't inline it — track it for separate fetching
+        if (block.type === "child_page") {
+          childPageIds.push(block.id);
+          continue;
+        }
+        // If it's a child_database, track it too
+        if (block.type === "child_database") {
+          childPageIds.push(block.id);
+          continue;
+        }
+
         const text = blockToText(block);
         const indent = "  ".repeat(depth);
-        if (text) blocks.push(indent + text);
+        if (text) lines.push(indent + text);
 
         if (block.has_children) {
-          const children = await fetchBlockChildren(block.id, depth + 1);
-          blocks.push(...children);
+          const children = await fetchBlocksFlat(block.id, depth + 1, childPageIds);
+          lines.push(...children);
         }
       }
 
@@ -84,12 +97,7 @@ async function fetchBlockChildren(blockId, depth) {
     // Skip inaccessible blocks
   }
 
-  return blocks;
-}
-
-async function fetchPageContent(pageId) {
-  const blocks = await fetchBlockChildren(pageId, 0);
-  return blocks.join("\n");
+  return lines;
 }
 
 async function getPageTitle(pageId) {
@@ -119,9 +127,7 @@ async function fetchDatabasePages(databaseId) {
     });
 
     for (const page of response.results) {
-      const title = await getPageTitle(page.id);
-      const content = await fetchPageContent(page.id);
-      if (content.trim()) pages.push({ title, content, id: page.id });
+      pages.push(page.id);
     }
 
     cursor = response.has_more ? response.next_cursor : null;
@@ -130,27 +136,62 @@ async function fetchDatabasePages(databaseId) {
   return pages;
 }
 
-async function fetchAllContent(notionIds) {
-  const sections = [];
-  const sources = []; // { title, id } for each page that contributed content
+/**
+ * Recursively fetch a page and all its child pages as separate sources.
+ * Each child page becomes its own { title, id, content } entry.
+ */
+async function fetchPageAsSource(pageId, sections, sources, visited) {
+  if (visited.has(pageId)) return;
+  visited.add(pageId);
 
-  for (const id of notionIds) {
+  const title = await getPageTitle(pageId);
+  const childPageIds = [];
+  const lines = await fetchBlocksFlat(pageId, 0, childPageIds);
+  const content = lines.join("\n");
+
+  if (content.trim()) {
+    sections.push("=== " + title + " ===\n" + content);
+    sources.push({ title, id: pageId });
+  }
+
+  // Recursively fetch each child page as its own source
+  for (const childId of childPageIds) {
     try {
+      // Check if it's a database
       try {
-        const dbPages = await fetchDatabasePages(id);
-        for (const page of dbPages) {
-          sections.push("=== " + page.title + " ===\n" + page.content);
-          sources.push({ title: page.title, id: page.id });
+        const dbPageIds = await fetchDatabasePages(childId);
+        for (const dbPageId of dbPageIds) {
+          await fetchPageAsSource(dbPageId, sections, sources, visited);
         }
         continue;
       } catch { }
 
-      const title = await getPageTitle(id);
-      const content = await fetchPageContent(id);
-      if (content.trim()) {
-        sections.push("=== " + title + " ===\n" + content);
-        sources.push({ title, id });
-      }
+      // Otherwise it's a child page
+      await fetchPageAsSource(childId, sections, sources, visited);
+    } catch (err) {
+      // Skip inaccessible children
+    }
+  }
+}
+
+async function fetchAllContent(notionIds) {
+  const sections = [];
+  const sources = [];
+  const visited = new Set();
+
+  for (const id of notionIds) {
+    try {
+      // Try as database first
+      try {
+        const dbPageIds = await fetchDatabasePages(id);
+        for (const pageId of dbPageIds) {
+          await fetchPageAsSource(pageId, sections, sources, visited);
+        }
+        continue;
+      } catch { }
+
+      // Otherwise treat as a page — recursively fetch it and all child pages
+      await fetchPageAsSource(id, sections, sources, visited);
     } catch (err) {
       console.error("Failed to fetch Notion content for ID " + id + ":", err.message);
     }
@@ -159,4 +200,4 @@ async function fetchAllContent(notionIds) {
   return { text: sections.join("\n\n"), sources };
 }
 
-module.exports = { fetchAllContent, fetchPageContent, fetchDatabasePages };
+module.exports = { fetchAllContent };
