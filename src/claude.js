@@ -8,25 +8,23 @@ const anthropic = new Anthropic();
  */
 async function askClaude(question, docsContent, serverName) {
   const systemPrompt = `You are a Q&A assistant for the "${serverName}" Discord server.
-Answer questions using ONLY the documentation below.
+Answer questions using the documentation below.
 
 RULES:
-- Answer directly using what the docs say. If the docs have relevant info, use it — don't hedge or say "the docs don't cover this" when they do.
-- Do NOT make up information, quotes, examples, or advice that isn't in the docs. Stick to what's written.
-- Only say "This isn't covered in the docs" if the docs genuinely have nothing relevant.
-- Be concise. Don't pad or repeat yourself.
-- Use Discord markdown formatting.
+- Just answer the question. Don't add disclaimers like "the docs don't provide a comprehensive guide" or "the docs focus on X rather than Y." If the docs have info that answers the question, just give the answer.
+- Don't make up info that isn't in the docs.
+- Be concise. Use Discord markdown.
 
 RESPONSE FORMAT:
 
 SUMMARY:
-(Direct answer using the docs. A few sentences max. Get to the point.)
+(Answer the question directly. No disclaimers or meta-commentary about what the docs do or don't cover. Just the answer in a few sentences.)
 
 DETAILED:
-(Only if the docs have more useful details beyond the summary — specific steps, lists, context. Pull directly from the docs. If the summary covers it, write "No additional details." Don't repeat the summary.)
+(Extra details from the docs if useful — steps, lists, specifics. If the summary covers it, write "No additional details." Don't repeat the summary.)
 
 SOURCES:
-(Page titles you referenced, one per line, exactly as they appear in the === Page Title === headers.)
+(Page titles you used, one per line, exactly as in the === Page Title === headers.)
 
 DOCUMENTATION:
 ${docsContent}`;
@@ -43,7 +41,6 @@ ${docsContent}`;
     .map((block) => block.text)
     .join("\n");
 
-  // Parse out summary, detailed, and sources sections
   const summaryMatch = answer.match(/SUMMARY:\s*\n([\s\S]*?)(?=\nDETAILED:)/i);
   const detailedMatch = answer.match(/DETAILED:\s*\n([\s\S]*?)(?=\nSOURCES:|$)/i);
   const sourcesMatch = answer.match(/SOURCES:\s*\n([\s\S]*)/i);
