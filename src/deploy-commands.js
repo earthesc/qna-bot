@@ -20,12 +20,6 @@ const commands = [
         .setName("notion_ids")
         .setDescription("Comma-separated Notion page or database IDs")
         .setRequired(true)
-    )
-    .addStringOption((option) =>
-      option
-        .setName("roles")
-        .setDescription("Mention the roles that can access these docs (e.g. @Staff @Admin)")
-        .setRequired(true)
     ),
 
   new SlashCommandBuilder()
