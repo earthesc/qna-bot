@@ -5,6 +5,9 @@ const {
   GatewayIntentBits,
   PermissionFlagsBits,
   EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } = require("discord.js");
 const { fetchAllContent } = require("./notion");
 const { askClaude } = require("./claude");
@@ -14,12 +17,39 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds],
 });
 
+const detailedAnswers = new Map();
+
 client.once("ready", () => {
   console.log("Bot is online as " + client.user.tag);
   console.log("Serving " + client.guilds.cache.size + " server(s)");
 });
 
 client.on("interactionCreate", async (interaction) => {
+  if (interaction.isButton()) {
+    if (interaction.customId.startsWith("show_more_")) {
+      const key = interaction.customId.replace("show_more_", "");
+      const data = detailedAnswers.get(key);
+
+      if (!data) {
+        await interaction.reply({
+          content: "This answer has expired. Please ask the question again.",
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const fullEmbed = new EmbedBuilder()
+        .setColor(0x5865f2)
+        .setTitle("Detailed Answer")
+        .setDescription(data.detailed.slice(0, 4096))
+        .setFooter({ text: "Question: " + data.question.slice(0, 100) })
+        .setTimestamp();
+
+      await interaction.reply({ embeds: [fullEmbed] });
+    }
+    return;
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   const { commandName, guildId, guild } = interaction;
@@ -46,24 +76,36 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      const answer = await askClaude(
+      const { summary, detailed } = await askClaude(
         question,
         docsContent,
         config.name || guild?.name || "this server"
       );
 
+      const answerKey = interaction.id;
+      detailedAnswers.set(answerKey, { detailed, question });
+      setTimeout(() => detailedAnswers.delete(answerKey), 30 * 60 * 1000);
+
       const embed = new EmbedBuilder()
         .setColor(0x5865f2)
+        .setAuthor({ name: question.slice(0, 256) })
         .setTitle("Answer")
-        .addFields({ name: "Question", value: question.slice(0, 1024) })
-        .setDescription(answer.slice(0, 4096))
+        .setDescription(summary.slice(0, 4096))
         .setFooter({
           text: "Asked by " + interaction.user.displayName,
           iconURL: interaction.user.displayAvatarURL(),
         })
         .setTimestamp();
 
-      await interaction.editReply({ embeds: [embed] });
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("show_more_" + answerKey)
+          .setLabel("Show Full Answer")
+          .setStyle(ButtonStyle.Primary)
+          .setEmoji("📖")
+      );
+
+      await interaction.editReply({ embeds: [embed], components: [row] });
     } catch (err) {
       console.error("Error handling /ask:", err);
       await interaction.editReply("Something went wrong while fetching the answer. Please try again later.");
@@ -117,12 +159,8 @@ client.on("interactionCreate", async (interaction) => {
       .setTitle("QNA Bot Status")
       .addFields(
         { name: "Server", value: config.name || guildId, inline: true },
-        {
-          name: "Notion Sources",
-          value: config.notionIds.length + " page(s)/database(s)",
-          inline: true,
-        },
-        { name: "Notion IDs", value: config.notionIds.join(", ") }
+        { name: "Notion Sources", value: config.notionIds.length + " page(s)/database(s)", inline: true },
+        { name: "Notion IDs", value: config.notionIds.map((id) => "`" + id + "`").join(", ") }
       )
       .setFooter({ text: "Use /qna-setup to update configuration" });
 
