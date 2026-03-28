@@ -11,7 +11,7 @@ const {
 } = require("discord.js");
 const { fetchAllContent } = require("./notion");
 const { askClaude } = require("./claude");
-const { getServerConfig, setServerConfig } = require("./config");
+const { getServerConfig, addSource, removeSource, getNotionIdsForRoles } = require("./config");
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
@@ -25,6 +25,7 @@ client.once("ready", () => {
 });
 
 client.on("interactionCreate", async (interaction) => {
+  // Button interactions (expand/collapse)
   if (interaction.isButton()) {
     const id = interaction.customId;
     if (id.startsWith("expand_") || id.startsWith("collapse_")) {
@@ -52,7 +53,11 @@ client.on("interactionCreate", async (interaction) => {
         .setTimestamp();
 
       if (expanding) {
-        embed.setDescription(data.summary.slice(0, 2000) + "\n\n---\n\n**Full Answer:**\n" + data.detailed.slice(0, 1800));
+        embed.setDescription(
+          data.summary.slice(0, 2000) +
+          "\n\n---\n\n**Full Answer:**\n" +
+          data.detailed.slice(0, 1800)
+        );
       } else {
         embed.setDescription(data.summary.slice(0, 4096));
       }
@@ -62,7 +67,7 @@ client.on("interactionCreate", async (interaction) => {
           .setCustomId(expanding ? "collapse_" + key : "expand_" + key)
           .setLabel(expanding ? "Hide Full Answer" : "Show Full Answer")
           .setStyle(expanding ? ButtonStyle.Secondary : ButtonStyle.Primary)
-          .setEmoji(expanding ? "🔼" : "📖")
+          .setEmoji(expanding ? "\uD83D\uDD3C" : "\uD83D\uDCD6")
       );
 
       await interaction.update({ embeds: [embed], components: [row] });
@@ -74,13 +79,16 @@ client.on("interactionCreate", async (interaction) => {
 
   const { commandName, guildId, guild } = interaction;
 
+  // /ask
   if (commandName === "ask") {
     const question = interaction.options.getString("question");
-    const config = getServerConfig(guildId);
 
-    if (!config || !config.notionIds.length) {
+    const memberRoleIds = interaction.member.roles.cache.map((r) => r.id);
+    const notionIds = getNotionIdsForRoles(guildId, memberRoleIds);
+
+    if (!notionIds.length) {
       await interaction.reply({
-        content: "This server hasn't been set up yet. An admin needs to run /qna-setup first.",
+        content: "You don't have access to any Notion docs in this server. Ask an admin to set up your role with /qna-setup.",
         ephemeral: true,
       });
       return;
@@ -89,17 +97,18 @@ client.on("interactionCreate", async (interaction) => {
     await interaction.deferReply();
 
     try {
-      const docsContent = await fetchAllContent(config.notionIds);
+      const docsContent = await fetchAllContent(notionIds);
 
       if (!docsContent.trim()) {
-        await interaction.editReply("No content found in the configured Notion pages.");
+        await interaction.editReply("No content found in the Notion pages you have access to.");
         return;
       }
 
+      const serverConfig = getServerConfig(guildId);
       const { summary, detailed } = await askClaude(
         question,
         docsContent,
-        config.name || guild?.name || "this server"
+        serverConfig?.name || guild?.name || "this server"
       );
 
       const answerKey = interaction.id;
@@ -128,7 +137,7 @@ client.on("interactionCreate", async (interaction) => {
           .setCustomId("expand_" + answerKey)
           .setLabel("Show Full Answer")
           .setStyle(ButtonStyle.Primary)
-          .setEmoji("📖")
+          .setEmoji("\uD83D\uDCD6")
       );
 
       await interaction.editReply({ embeds: [embed], components: [row] });
@@ -138,6 +147,7 @@ client.on("interactionCreate", async (interaction) => {
     }
   }
 
+  // /qna-setup
   if (commandName === "qna-setup") {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
       await interaction.reply({
@@ -161,34 +171,84 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    setServerConfig(guildId, notionIds, guild?.name);
+    const rolesRaw = interaction.options.getString("roles");
+    const roleMatches = rolesRaw.match(/<@&(\d+)>/g);
 
-    await interaction.reply({
-      content: "QNA Bot configured! Linked " + notionIds.length + " Notion page(s)/database(s). Members can now use /ask.",
-      ephemeral: true,
-    });
-  }
-
-  if (commandName === "qna-status") {
-    const config = getServerConfig(guildId);
-
-    if (!config) {
+    if (!roleMatches || !roleMatches.length) {
       await interaction.reply({
-        content: "This server hasn't been set up yet. Run /qna-setup to link Notion pages.",
+        content: "Please mention at least one role (e.g. @Staff @Admin). Make sure to use @ mentions.",
         ephemeral: true,
       });
       return;
     }
 
+    const roleIds = roleMatches.map((m) => m.replace(/<@&|>/g, ""));
+    const roleNames = roleIds.map((id) => {
+      const role = interaction.guild.roles.cache.get(id);
+      return role ? role.name : id;
+    });
+    const roleLabel = roleNames.map((n) => "@" + n).join(", ");
+
+    addSource(guildId, notionIds, roleIds, roleLabel, guild?.name);
+
+    await interaction.reply({
+      content: "QNA Bot configured!\n\nLinked **" + notionIds.length + "** Notion source(s) to roles: " + roleLabel + "\n\nUsers with those roles can now use /ask to query these docs.",
+      ephemeral: true,
+    });
+  }
+
+  // /qna-remove
+  if (commandName === "qna-remove") {
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+      await interaction.reply({
+        content: "Only server administrators can run this command.",
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const notionId = interaction.options.getString("notion_id").trim().replace(/-/g, "");
+    const removed = removeSource(guildId, notionId);
+
+    if (removed) {
+      await interaction.reply({
+        content: "Removed Notion source `" + notionId + "` from this server.",
+        ephemeral: true,
+      });
+    } else {
+      await interaction.reply({
+        content: "No source found with that ID. Use /qna-status to see configured sources.",
+        ephemeral: true,
+      });
+    }
+  }
+
+  // /qna-status
+  if (commandName === "qna-status") {
+    const config = getServerConfig(guildId);
+
+    if (!config || !config.sources || !config.sources.length) {
+      await interaction.reply({
+        content: "This server hasn't been set up yet. An admin needs to run /qna-setup to link Notion pages to roles.",
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const sourceList = config.sources.map((s, i) => {
+      const ids = s.notionIds.map((id) => "`" + id + "`").join(", ");
+      return "**" + (i + 1) + ".** " + ids + "\n   Roles: " + s.label;
+    }).join("\n\n");
+
     const embed = new EmbedBuilder()
       .setColor(0x00d26a)
       .setTitle("QNA Bot Status")
+      .setDescription(sourceList)
       .addFields(
         { name: "Server", value: config.name || guildId, inline: true },
-        { name: "Notion Sources", value: config.notionIds.length + " page(s)/database(s)", inline: true },
-        { name: "Notion IDs", value: config.notionIds.map((id) => "`" + id + "`").join(", ") }
+        { name: "Total Sources", value: config.sources.length + "", inline: true }
       )
-      .setFooter({ text: "Use /qna-setup to update configuration" });
+      .setFooter({ text: "Use /qna-setup to add sources, /qna-remove to delete" });
 
     await interaction.reply({ embeds: [embed], ephemeral: true });
   }
