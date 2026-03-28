@@ -3,6 +3,20 @@ const path = require("path");
 
 const CONFIG_PATH = path.join(__dirname, "..", "server-config.json");
 
+/**
+ * Per-server configuration with role-based Notion sources.
+ *
+ * Format:
+ * {
+ *   "guild_id": {
+ *     "name": "Server Name",
+ *     "sources": [
+ *       { "notionIds": ["id1"], "roleIds": ["role1", "role2"], "label": "@Role1, @Role2" }
+ *     ]
+ *   }
+ * }
+ */
+
 function loadConfig() {
   try {
     if (fs.existsSync(CONFIG_PATH)) {
@@ -29,13 +43,52 @@ function addSource(guildId, notionIds, roleIds, roleLabel, serverName) {
     config[guildId] = { name: serverName || guildId, sources: [] };
   }
   config[guildId].name = serverName || config[guildId].name;
-  config[guildId].sources.push({ notionIds, roleIds, label: roleLabel });
 
+  // Migrate old format if needed
   if (config[guildId].notionIds) {
     delete config[guildId].notionIds;
   }
 
+  // Check if a source with the same Notion IDs already exists
+  const sortedNew = [...notionIds].sort().join(",");
+  const existing = config[guildId].sources.find((s) => {
+    return [...s.notionIds].sort().join(",") === sortedNew;
+  });
+
+  if (existing) {
+    // Merge new roles into existing source
+    for (const rid of roleIds) {
+      if (!existing.roleIds.includes(rid)) {
+        existing.roleIds.push(rid);
+      }
+    }
+    // Label will be rebuilt by caller via updateSourceLabel
+  } else {
+    config[guildId].sources.push({ notionIds, roleIds, label: roleLabel });
+  }
+
   saveConfig(config);
+  return existing || null;
+}
+
+function updateSourceLabel(guildId, notionIds, newLabel) {
+  const config = loadConfig();
+  const server = config[guildId];
+  if (!server || !server.sources) return;
+  const sortedNew = [...notionIds].sort().join(",");
+  const source = server.sources.find((s) => [...s.notionIds].sort().join(",") === sortedNew);
+  if (source) {
+    source.label = newLabel;
+    saveConfig(config);
+  }
+}
+
+function getSourceByNotionIds(guildId, notionIds) {
+  const config = loadConfig();
+  const server = config[guildId];
+  if (!server || !server.sources) return null;
+  const sortedNew = [...notionIds].sort().join(",");
+  return server.sources.find((s) => [...s.notionIds].sort().join(",") === sortedNew) || null;
 }
 
 function removeSource(guildId, notionId) {
@@ -79,6 +132,8 @@ module.exports = {
   addSource,
   removeSource,
   getNotionIdsForRoles,
+  getSourceByNotionIds,
+  updateSourceLabel,
   removeServerConfig,
   loadConfig,
 };
