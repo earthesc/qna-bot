@@ -151,7 +151,11 @@ client.on("interactionCreate", async (interaction) => {
       const embed = new EmbedBuilder()
         .setColor(0x5865f2)
         .setTitle("Question")
-        .setFooter({ text: "Asked by " + data.username, iconURL: data.avatarURL })
+        .setDescription(data.question)
+        .setFooter({
+          text: "Asked by " + data.username,
+          iconURL: data.avatarURL,
+        })
         .setTimestamp();
 
       if (expanding) {
@@ -208,20 +212,21 @@ client.on("interactionCreate", async (interaction) => {
         serverConfig?.name || guild?.name || "this server"
       );
 
+      // Match cited titles to actual Notion page sources for hyperlinks
       const sourceLinks = [];
+      const usedIds = new Set();
       for (const cited of citedTitles) {
-        const match = notionSources.find((s) => s.title.toLowerCase() === cited.toLowerCase());
-        if (match) {
+        const citedLower = cited.toLowerCase();
+        // Try exact match first, then partial match (contains)
+        const match = notionSources.find((s) => s.title.toLowerCase() === citedLower)
+          || notionSources.find((s) => s.title.toLowerCase().includes(citedLower) || citedLower.includes(s.title.toLowerCase()));
+        if (match && !usedIds.has(match.id)) {
+          usedIds.add(match.id);
           const cleanId = match.id.replace(/-/g, "");
           sourceLinks.push("[" + match.title + "](https://notion.so/" + cleanId + ")");
         }
       }
-      if (!sourceLinks.length && notionSources.length) {
-        for (const s of notionSources) {
-          const cleanId = s.id.replace(/-/g, "");
-          sourceLinks.push("[" + s.title + "](https://notion.so/" + cleanId + ")");
-        }
-      }
+      // No fallback — only show what Claude actually cited
       const sourceText = sourceLinks.length ? sourceLinks.join("\n") : "Notion docs";
 
       const answerKey = interaction.id;
