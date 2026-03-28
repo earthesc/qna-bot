@@ -12,7 +12,7 @@ const {
 } = require("discord.js");
 const { fetchAllContent } = require("./notion");
 const { askClaude } = require("./claude");
-const { getServerConfig, addSource, removeSource, getNotionIdsForRoles, getSourceByNotionIds, updateSourceLabel } = require("./config");
+const { getServerConfig, addSource, removeSource, getNotionIdsForRoles, updateSourceLabel } = require("./config");
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds],
@@ -27,7 +27,7 @@ client.once("ready", () => {
 });
 
 client.on("interactionCreate", async (interaction) => {
-  // ─── Role select menu interactions (qna-setup step 2) ───
+  // ─── Role select menu: store selected roles, show submit button ───
   if (interaction.isRoleSelectMenu()) {
     const id = interaction.customId;
     if (id.startsWith("qna_roles_")) {
@@ -42,18 +42,68 @@ client.on("interactionCreate", async (interaction) => {
         return;
       }
 
-      const roleIds = interaction.values;
-      const roleNames = roleIds.map((rid) => {
+      // Store the selected role IDs
+      pending.selectedRoleIds = interaction.values;
+      pending.selectedRoleNames = interaction.values.map((rid) => {
+        if (rid === interaction.guildId) return "@everyone";
         const role = interaction.guild.roles.cache.get(rid);
         return role ? "@" + role.name : rid;
       });
-      const roleLabel = roleNames.join(", ");
+
+      // Re-show the role select + submit button
+      const roleRow = new ActionRowBuilder().addComponents(
+        new RoleSelectMenuBuilder()
+          .setCustomId("qna_roles_" + setupKey)
+          .setPlaceholder("Select specific roles...")
+          .setMinValues(1)
+          .setMaxValues(10)
+      );
+
+      const buttonRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId("qna_submit_" + setupKey)
+          .setLabel("Submit (" + pending.selectedRoleNames.join(", ") + ")")
+          .setStyle(ButtonStyle.Primary)
+          .setEmoji("\u2705"),
+        new ButtonBuilder()
+          .setCustomId("qna_everyone_" + setupKey)
+          .setLabel("Everyone (all members)")
+          .setStyle(ButtonStyle.Success)
+          .setEmoji("\uD83C\uDF0D")
+      );
+
+      await interaction.update({
+        content: "**Step 2:** Who should have access to these Notion docs?\n\nSelected: " + pending.selectedRoleNames.join(", ") + "\n\nClick **Submit** to confirm, pick different roles, or click **Everyone**.",
+        components: [roleRow, buttonRow],
+      });
+    }
+    return;
+  }
+
+  // ─── Button interactions ──────────────────────────────────
+  if (interaction.isButton()) {
+    const id = interaction.customId;
+
+    // Submit button from qna-setup
+    if (id.startsWith("qna_submit_")) {
+      const setupKey = id.replace("qna_submit_", "");
+      const pending = pendingSetups.get(setupKey);
+
+      if (!pending || !pending.selectedRoleIds || !pending.selectedRoleIds.length) {
+        await interaction.reply({
+          content: "This setup has expired or no roles were selected. Please run /qna-setup again.",
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const roleIds = pending.selectedRoleIds;
+      const roleLabel = pending.selectedRoleNames.join(", ");
 
       const merged = addSource(interaction.guildId, pending.notionIds, roleIds, roleLabel, interaction.guild?.name);
       pendingSetups.delete(setupKey);
 
       if (merged) {
-        // Rebuild the label from ALL role IDs on this source
         const allRoleNames = merged.roleIds.map((rid) => {
           if (rid === interaction.guildId) return "@everyone";
           const role = interaction.guild.roles.cache.get(rid);
@@ -72,13 +122,8 @@ client.on("interactionCreate", async (interaction) => {
           components: [],
         });
       }
+      return;
     }
-    return;
-  }
-
-  // ─── Button interactions ──────────────────────────────────
-  if (interaction.isButton()) {
-    const id = interaction.customId;
 
     // "Everyone" button from qna-setup
     if (id.startsWith("qna_everyone_")) {
@@ -266,7 +311,7 @@ client.on("interactionCreate", async (interaction) => {
     }
 
     const setupKey = interaction.id;
-    pendingSetups.set(setupKey, { notionIds });
+    pendingSetups.set(setupKey, { notionIds, selectedRoleIds: [], selectedRoleNames: [] });
     setTimeout(() => pendingSetups.delete(setupKey), 5 * 60 * 1000);
 
     const roleRow = new ActionRowBuilder().addComponents(
@@ -286,7 +331,7 @@ client.on("interactionCreate", async (interaction) => {
     );
 
     await interaction.reply({
-      content: "**Step 2:** Who should have access to these Notion docs?\n\nPick specific roles from the dropdown, **or** click the button below for everyone.",
+      content: "**Step 2:** Who should have access to these Notion docs?\n\nPick specific roles from the dropdown, then click **Submit**. Or click **Everyone** for all members.",
       components: [roleRow, everyoneRow],
       ephemeral: true,
     });
