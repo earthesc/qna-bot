@@ -8,6 +8,7 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  RoleSelectMenuBuilder,
 } = require("discord.js");
 const { fetchAllContent } = require("./notion");
 const { askClaude } = require("./claude");
@@ -18,6 +19,7 @@ const client = new Client({
 });
 
 const answerStore = new Map();
+const pendingSetups = new Map();
 
 client.once("ready", () => {
   console.log("Bot is online as " + client.user.tag);
@@ -25,7 +27,41 @@ client.once("ready", () => {
 });
 
 client.on("interactionCreate", async (interaction) => {
-  // Button interactions (expand/collapse)
+  // ─── Role select menu interactions (qna-setup step 2) ───
+  if (interaction.isRoleSelectMenu()) {
+    const id = interaction.customId;
+    if (id.startsWith("qna_roles_")) {
+      const setupKey = id.replace("qna_roles_", "");
+      const pending = pendingSetups.get(setupKey);
+
+      if (!pending) {
+        await interaction.reply({
+          content: "This setup has expired. Please run /qna-setup again.",
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const roleIds = interaction.values;
+      const roleNames = roleIds.map((rid) => {
+        if (rid === interaction.guildId) return "@everyone";
+        const role = interaction.guild.roles.cache.get(rid);
+        return role ? "@" + role.name : rid;
+      });
+      const roleLabel = roleNames.join(", ");
+
+      addSource(interaction.guildId, pending.notionIds, roleIds, roleLabel, interaction.guild?.name);
+      pendingSetups.delete(setupKey);
+
+      await interaction.update({
+        content: "QNA Bot configured!\n\nLinked **" + pending.notionIds.length + "** Notion source(s) to roles: " + roleLabel + "\n\nUsers with those roles can now use /ask to query these docs.",
+        components: [],
+      });
+    }
+    return;
+  }
+
+  // ─── Button interactions (expand/collapse) ────────────────
   if (interaction.isButton()) {
     const id = interaction.customId;
     if (id.startsWith("expand_") || id.startsWith("collapse_")) {
@@ -79,7 +115,7 @@ client.on("interactionCreate", async (interaction) => {
 
   const { commandName, guildId, guild } = interaction;
 
-  // /ask
+  // ─── /ask ────────────────────────────────────────────────
   if (commandName === "ask") {
     const question = interaction.options.getString("question");
 
@@ -147,7 +183,7 @@ client.on("interactionCreate", async (interaction) => {
     }
   }
 
-  // /qna-setup
+  // ─── /qna-setup (step 1: show role select menu) ──────────
   if (commandName === "qna-setup") {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
       await interaction.reply({
@@ -171,33 +207,26 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    const rolesRaw = interaction.options.getString("roles");
-    const roleMatches = rolesRaw.match(/<@&(\d+)>/g);
+    const setupKey = interaction.id;
+    pendingSetups.set(setupKey, { notionIds });
+    setTimeout(() => pendingSetups.delete(setupKey), 5 * 60 * 1000);
 
-    if (!roleMatches || !roleMatches.length) {
-      await interaction.reply({
-        content: "Please mention at least one role (e.g. @Staff @Admin). Make sure to use @ mentions.",
-        ephemeral: true,
-      });
-      return;
-    }
-
-    const roleIds = roleMatches.map((m) => m.replace(/<@&|>/g, ""));
-    const roleNames = roleIds.map((id) => {
-      const role = interaction.guild.roles.cache.get(id);
-      return role ? role.name : id;
-    });
-    const roleLabel = roleNames.map((n) => "@" + n).join(", ");
-
-    addSource(guildId, notionIds, roleIds, roleLabel, guild?.name);
+    const row = new ActionRowBuilder().addComponents(
+      new RoleSelectMenuBuilder()
+        .setCustomId("qna_roles_" + setupKey)
+        .setPlaceholder("Select roles that can access these docs")
+        .setMinValues(1)
+        .setMaxValues(10)
+    );
 
     await interaction.reply({
-      content: "QNA Bot configured!\n\nLinked **" + notionIds.length + "** Notion source(s) to roles: " + roleLabel + "\n\nUsers with those roles can now use /ask to query these docs.",
+      content: "**Step 2:** Select the roles that should have access to these Notion docs.\nChoose **@everyone** to make them available to all members.",
+      components: [row],
       ephemeral: true,
     });
   }
 
-  // /qna-remove
+  // ─── /qna-remove ────────────────────────────────────────
   if (commandName === "qna-remove") {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
       await interaction.reply({
@@ -223,7 +252,7 @@ client.on("interactionCreate", async (interaction) => {
     }
   }
 
-  // /qna-status
+  // ─── /qna-status ────────────────────────────────────────
   if (commandName === "qna-status") {
     const config = getServerConfig(guildId);
 
