@@ -18,16 +18,26 @@ function blockToText(block) {
   if (data.rich_text) {
     const text = extractText(data.rich_text);
     switch (type) {
-      case "heading_1": return "# " + text;
-      case "heading_2": return "## " + text;
-      case "heading_3": return "### " + text;
-      case "bulleted_list_item": return "- " + text;
-      case "numbered_list_item": return "- " + text;
-      case "to_do": return (data.checked ? "[x] " : "[ ] ") + text;
-      case "toggle": return "> " + text;
-      case "quote": return "> " + text;
-      case "callout": return "> " + text;
-      default: return text;
+      case "heading_1":
+        return "# " + text;
+      case "heading_2":
+        return "## " + text;
+      case "heading_3":
+        return "### " + text;
+      case "bulleted_list_item":
+        return "- " + text;
+      case "numbered_list_item":
+        return "- " + text;
+      case "to_do":
+        return (data.checked ? "[x] " : "[ ] ") + text;
+      case "toggle":
+        return "> " + text;
+      case "quote":
+        return "> " + text;
+      case "callout":
+        return "> " + text;
+      default:
+        return text;
     }
   }
 
@@ -111,7 +121,7 @@ async function fetchDatabasePages(databaseId) {
     for (const page of response.results) {
       const title = await getPageTitle(page.id);
       const content = await fetchPageContent(page.id);
-      if (content.trim()) pages.push({ title, content });
+      if (content.trim()) pages.push({ title, content, id: page.id });
     }
 
     cursor = response.has_more ? response.next_cursor : null;
@@ -122,6 +132,7 @@ async function fetchDatabasePages(databaseId) {
 
 async function fetchAllContent(notionIds) {
   const sections = [];
+  const sources = []; // { title, id } for each page that contributed content
 
   for (const id of notionIds) {
     try {
@@ -129,6 +140,7 @@ async function fetchAllContent(notionIds) {
         const dbPages = await fetchDatabasePages(id);
         for (const page of dbPages) {
           sections.push("=== " + page.title + " ===\n" + page.content);
+          sources.push({ title: page.title, id: page.id });
         }
         continue;
       } catch { }
@@ -137,13 +149,14 @@ async function fetchAllContent(notionIds) {
       const content = await fetchPageContent(id);
       if (content.trim()) {
         sections.push("=== " + title + " ===\n" + content);
+        sources.push({ title, id });
       }
     } catch (err) {
       console.error("Failed to fetch Notion content for ID " + id + ":", err.message);
     }
   }
 
-  return sections.join("\n\n");
+  return { text: sections.join("\n\n"), sources };
 }
 
 module.exports = { fetchAllContent, fetchPageContent, fetchDatabasePages };
